@@ -7,7 +7,7 @@ import time
 from ai.client import generate
 from ai.fetcher import fetch_full_text
 
-BATCH_SIZE = 3          # Articles per Gemini API call
+BATCH_SIZE = 8          # Articles per Gemini API call (fewer calls = less quota burn)
 RATE_LIMIT_SEC = 8.0    # Seconds between API calls (free tier: 15 RPM)
 FETCH_DELAY = 1.0       # Seconds between article fetches (polite crawling)
 RETRY_WAIT = 30         # Seconds to wait before retrying a failed batch

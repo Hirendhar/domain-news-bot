@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; domain-news-bot/1.0)"}
 RSS_URL = "https://www.namepros.com/forums/-/index.rss"
+MAX_ITEMS = 25   # NamePros is high-volume (mostly sale listings) — cap to limit noise
 
 
 def fetch() -> list[dict]:
@@ -44,6 +45,8 @@ def fetch() -> list[dict]:
                     "excerpt":    desc,
                 })
 
+        if len(results) > MAX_ITEMS:
+            results = results[:MAX_ITEMS]
         print(f"  [NamePros] {len(results)} articles")
         return results
 
