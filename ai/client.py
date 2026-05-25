@@ -1,5 +1,5 @@
 """
-Gemini AI client with automatic model fallback on quota exhaustion.
+Gemini AI client with automatic model fallback on quota/overload.
 Free tier: 500 req/day on gemini-2.0-flash-lite, 1M tokens/day.
 """
 import os
@@ -16,11 +16,19 @@ MODEL_FALLBACK = [
     "gemini-flash-lite-latest",
 ]
 
+# Status codes that trigger model fallback (not hard failures)
+_RETRY_STATUSES = {
+    429,   # quota exhausted — try next model
+    404,   # model not available
+    503,   # model overloaded (transient) — wait longer before next model
+}
+_OVERLOAD_SLEEP = 15.0   # extra wait on 503 before trying next model
+
 
 def generate(prompt: str, model: str = "", rate_limit: float = 7.0) -> dict:
     """
-    Call Gemini API with auto-fallback on 429 (quota) or 404 (model unavailable).
-    Returns parsed JSON dict, or {} on failure.
+    Call Gemini API with auto-fallback on 429/404/503.
+    Returns parsed JSON dict, or {} on all-models failure.
     """
     global _last_call
 
@@ -54,9 +62,10 @@ def generate(prompt: str, model: str = "", rate_limit: float = 7.0) -> dict:
             resp = requests.post(url, json=payload, timeout=30)
             if resp.status_code == 200:
                 return _parse_response(resp)
-            if resp.status_code in (429, 404):
-                print(f"  [AI] {m} returned {resp.status_code} — trying next model")
-                time.sleep(2)
+            if resp.status_code in _RETRY_STATUSES:
+                sleep_time = _OVERLOAD_SLEEP if resp.status_code == 503 else 2
+                print(f"  [AI] {m} returned {resp.status_code} — waiting {sleep_time:.0f}s, trying next model")
+                time.sleep(sleep_time)
                 continue
             print(f"  [AI] {m} returned {resp.status_code}: {resp.text[:200]}")
             return {}

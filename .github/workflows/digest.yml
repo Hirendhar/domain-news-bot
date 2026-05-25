@@ -1,17 +1,17 @@
-name: Domain News Bot
+name: Domain News Weekly Digest
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
-  workflow_dispatch:          # Manual trigger from GitHub Actions UI
+    - cron: "0 8 * * 1"   # Every Monday at 08:00 UTC
+  workflow_dispatch:        # Manual trigger from GitHub Actions UI
 
 permissions:
   contents: read
 
 jobs:
-  scrape:
+  digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Domain News Bot
+      - name: Send weekly digest
         env:
           NOTION_TOKEN:       ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
@@ -34,5 +34,4 @@ jobs:
           GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL_TO:    ${{ secrets.NOTIFY_EMAIL_TO }}
-          USER_CONTEXT:       ${{ secrets.USER_CONTEXT }}
-        run: python -m scraper.main
+        run: python digest.py
