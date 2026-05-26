@@ -39,6 +39,15 @@ jobs:
           from emailer import send_email, is_configured, _cfg
           c = _cfg()
           print(f"host={c['host']}:{c['port']}  user={c['user']!r}  from={c['from']!r}  to={c['to']!r}  pw_len={len(c['password'])}")
+
+          # Non-secret structural checks (these derived numbers aren't masked)
+          def struct(label, v):
+              print(f"  {label}: len={len(v)}  at_count={v.count('@')}  "
+                    f"has_space={any(ch.isspace() for ch in v)}  "
+                    f"at_pos={v.find('@')}  endswith_com={v.endswith('.com')}")
+          struct("to  ", c["to"])
+          struct("from", c["from"])
+
           if not is_configured():
               print("FAILED: email not configured — set SMTP_* (or GMAIL_*) and NOTIFY_EMAIL_TO secrets.")
               raise SystemExit(1)
