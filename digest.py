@@ -12,14 +12,13 @@ Required env vars:
 """
 import os
 import sys
-import smtplib
 import requests
 from datetime import date, timedelta
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from emailer import send_email, is_configured
 
 NOTION_VERSION = "2022-06-28"
 NOTION_BASE    = "https://api.notion.com/v1"
@@ -114,17 +113,7 @@ Plain text only — no markdown, no bullet points, just paragraphs.
 
 
 def send_digest(articles: list[dict], synthesis: str) -> None:
-    """Email the weekly digest."""
-    gmail_addr = os.environ.get("GMAIL_ADDRESS", "").strip()
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
-    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "").strip()
-
-    if not all([gmail_addr, gmail_pass, notify_to]):
-        print("[Digest] Email credentials not set — printing digest to stdout:\n")
-        if synthesis:
-            print(synthesis)
-        return
-
+    """Email the weekly digest via the configured SMTP provider."""
     week_ending = date.today().strftime("%-d %b %Y")
     subject = f"🌐 Domain News Weekly — Week ending {week_ending} ({len(articles)} articles)"
 
@@ -148,19 +137,13 @@ def send_digest(articles: list[dict], synthesis: str) -> None:
 
     lines += ["", "─" * 50, f"View in Notion: {NOTION_DB_URL}"]
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = gmail_addr
-    msg["To"]      = notify_to
-    msg.attach(MIMEText("\n".join(lines), "plain"))
+    if not is_configured():
+        print("[Digest] Email not configured — printing digest to stdout:\n")
+        print("\n".join(lines))
+        return
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_addr, gmail_pass)
-            server.sendmail(gmail_addr, notify_to, msg.as_string())
-        print(f"[Digest] Weekly digest sent to {notify_to} ({len(articles)} articles)")
-    except Exception as e:
-        print(f"[Digest] Email failed: {e}")
+    if send_email(subject, "\n".join(lines)):
+        print(f"[Digest] Weekly digest sent ({len(articles)} articles)")
 
 
 def main() -> None:

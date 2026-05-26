@@ -31,8 +31,15 @@ jobs:
           NOTION_TOKEN:       ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
-          GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL_TO:    ${{ secrets.NOTIFY_EMAIL_TO }}
           USER_CONTEXT:       ${{ secrets.USER_CONTEXT }}
+          # Email provider (Brevo recommended for CI; Gmail blocks datacenter IPs)
+          SMTP_HOST:          ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:          ${{ secrets.SMTP_PORT }}
+          SMTP_USER:          ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD:      ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM:         ${{ secrets.EMAIL_FROM }}
+          # Gmail fallbacks (used only if SMTP_* unset)
+          GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python -m scraper.main

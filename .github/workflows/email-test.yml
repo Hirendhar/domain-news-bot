@@ -1,9 +1,8 @@
 name: Email Test
 
-# Fast (~30s) diagnostic: logs into Gmail SMTP with the configured secrets
-# straight from a GitHub Actions runner and sends one test email.
-# Tells us whether the stored secret is valid AND whether Gmail accepts the
-# login from GitHub's datacenter IP. Trigger manually from the Actions tab.
+# Fast (~40s) diagnostic: sends one test email via the configured SMTP
+# provider (Brevo by default in CI, Gmail fallback) straight from a GitHub
+# Actions runner. Trigger manually from the Actions tab.
 
 on:
   workflow_dispatch:
@@ -16,39 +15,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Test Gmail SMTP from runner
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Send test email via configured provider
         env:
+          SMTP_HOST:          ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:          ${{ secrets.SMTP_PORT }}
+          SMTP_USER:          ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD:      ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM:         ${{ secrets.EMAIL_FROM }}
+          NOTIFY_EMAIL_TO:    ${{ secrets.NOTIFY_EMAIL_TO }}
+          # Gmail fallbacks (used only if SMTP_* unset)
           GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          NOTIFY_EMAIL_TO:    ${{ secrets.NOTIFY_EMAIL_TO }}
         run: |
           python - <<'PY'
-          import os, smtplib
-          from email.mime.text import MIMEText
-
-          addr = os.environ.get("GMAIL_ADDRESS", "").strip()
-          pw   = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
-          to   = os.environ.get("NOTIFY_EMAIL_TO", "").strip()
-
-          # Safe diagnostics — length, never the password value
-          print(f"from={addr!r}  pw_len={len(pw)} (should be 16)  to={to!r}")
-          if len(pw) != 16:
-              print("WARNING: password is not 16 chars — the secret is likely wrong/mangled.")
-
-          try:
-              with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-                  s.login(addr, pw)
-                  m = MIMEText("Domain News Bot — email test sent from a GitHub Actions runner. "
-                               "If you received this, CI email delivery works.")
-                  m["Subject"] = "Domain News Bot — CI email test"
-                  m["From"] = addr
-                  m["To"] = to
-                  s.sendmail(addr, to, m.as_string())
-              print(f"SUCCESS — test email sent to {to} from the GitHub Actions runner.")
-          except Exception as e:
-              print(f"FAILED: {e}")
-              print("If pw_len is 16 and address is correct but this still 535s, "
-                    "Gmail is blocking the login from GitHub's datacenter IP — "
-                    "switch to a transactional email provider (Brevo/Resend).")
+          from emailer import send_email, is_configured, _cfg
+          c = _cfg()
+          print(f"host={c['host']}:{c['port']}  user={c['user']!r}  from={c['from']!r}  to={c['to']!r}  pw_len={len(c['password'])}")
+          if not is_configured():
+              print("FAILED: email not configured — set SMTP_* (or GMAIL_*) and NOTIFY_EMAIL_TO secrets.")
               raise SystemExit(1)
+          ok = send_email("Domain News Bot — CI email test",
+                          "Test email sent from a GitHub Actions runner. If you got this, CI email works.")
+          raise SystemExit(0 if ok else 1)
           PY

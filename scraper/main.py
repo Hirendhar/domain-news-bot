@@ -19,16 +19,14 @@ Optional env vars:
 """
 import os
 import sys
-import smtplib
 from datetime import date
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from scraper.sources import domainnamewire, dnjournal, namepros, circleid, icannblog
 from storage.notion_sync import sync, normalize_url
+from emailer import send_email, is_configured
 
 SOURCES = [
     ("Domain Name Wire", domainnamewire.fetch),
@@ -42,14 +40,9 @@ NOTION_DB_URL = "https://www.notion.so/Domain-News-1b77ea433c6c80e49916cac0f9c8b
 
 
 def _send_email(added_count: int, articles: list[dict]) -> None:
-    """Send an email digest of newly added articles via Gmail SMTP."""
-    gmail_addr = os.environ.get("GMAIL_ADDRESS", "").strip()
-    # Gmail shows app passwords as "abcd efgh ijkl mnop" — strip spaces, SMTP rejects them
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
-    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "").strip()
-
-    if not all([gmail_addr, gmail_pass, notify_to]):
-        return   # Silently skip if credentials not configured
+    """Send an email digest of newly added articles via the configured SMTP provider."""
+    if not is_configured():
+        return   # Silently skip if email credentials not configured
 
     today = date.today().strftime("%-d %b %Y")
     subject = f"📰 Domain News — {added_count} new article{'s' if added_count != 1 else ''} ({today})"
@@ -74,22 +67,7 @@ def _send_email(added_count: int, articles: list[dict]) -> None:
         f"View all in Notion: {NOTION_DB_URL}",
     ]
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = gmail_addr
-    msg["To"]      = notify_to
-    msg.attach(MIMEText("\n".join(lines), "plain"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_addr, gmail_pass)
-            server.sendmail(gmail_addr, notify_to, msg.as_string())
-        print(f"  [Email] Digest sent to {notify_to}")
-    except Exception as e:
-        # Safe diagnostic — prints address + password LENGTH (never the value)
-        # so we can tell a mangled secret from a Gmail datacenter-IP block.
-        print(f"  [Email] Failed to send: {e}")
-        print(f"  [Email] (diagnostic: from={gmail_addr!r}, pw_len={len(gmail_pass)} chars, to={notify_to!r})")
+    send_email(subject, "\n".join(lines))
 
 
 def main() -> None:
