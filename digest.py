@@ -115,9 +115,9 @@ Plain text only — no markdown, no bullet points, just paragraphs.
 
 def send_digest(articles: list[dict], synthesis: str) -> None:
     """Email the weekly digest."""
-    gmail_addr = os.environ.get("GMAIL_ADDRESS", "")
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "")
+    gmail_addr = os.environ.get("GMAIL_ADDRESS", "").strip()
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "").strip()
 
     if not all([gmail_addr, gmail_pass, notify_to]):
         print("[Digest] Email credentials not set — printing digest to stdout:\n")

@@ -43,9 +43,10 @@ NOTION_DB_URL = "https://www.notion.so/Domain-News-1b77ea433c6c80e49916cac0f9c8b
 
 def _send_email(added_count: int, articles: list[dict]) -> None:
     """Send an email digest of newly added articles via Gmail SMTP."""
-    gmail_addr = os.environ.get("GMAIL_ADDRESS", "")
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "")
+    gmail_addr = os.environ.get("GMAIL_ADDRESS", "").strip()
+    # Gmail shows app passwords as "abcd efgh ijkl mnop" — strip spaces, SMTP rejects them
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+    notify_to  = os.environ.get("NOTIFY_EMAIL_TO", "").strip()
 
     if not all([gmail_addr, gmail_pass, notify_to]):
         return   # Silently skip if credentials not configured
