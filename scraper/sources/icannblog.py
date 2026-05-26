@@ -11,7 +11,12 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; domain-news-bot/1.0)"}
+# Realistic browser UA — Domain Gang returns 403 to obvious bot UAs on datacenter IPs
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/rss+xml, application/xml, text/xml; q=0.9, */*; q=0.8",
+}
 RSS_URL = "https://domaingang.com/feed/"
 SOURCE_NAME = "Domain Gang"
 

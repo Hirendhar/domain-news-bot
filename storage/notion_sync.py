@@ -23,6 +23,8 @@ _STRIP_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_co
 _PUSH_DELAY = 0.4        # seconds between pushes (keeps under Notion's 3 req/s limit)
 _PUSH_RETRIES = 3        # attempts per article
 _PUSH_BACKOFF = 2.0      # seconds between retries
+_TIMEOUT = 30            # per-request timeout (Notion can be slow under load)
+_TRANSIENT_CODES = {429, 500, 502, 503, 504}
 
 
 def _headers() -> dict:
@@ -34,6 +36,32 @@ def _headers() -> dict:
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
+
+
+def _request_with_retry(url: str, payload: dict, label: str) -> requests.Response | None:
+    """
+    POST to Notion with retry on network errors (timeout/connection) and
+    transient HTTP codes. Returns the Response, or None if all attempts failed.
+    Never raises — a transient Notion blip must not crash the whole run.
+    """
+    for attempt in range(1, _PUSH_RETRIES + 1):
+        try:
+            resp = requests.post(url, headers=_headers(), json=payload, timeout=_TIMEOUT)
+        except requests.exceptions.RequestException as e:
+            if attempt < _PUSH_RETRIES:
+                print(f"  [Notion] {label}: network error (attempt {attempt}/{_PUSH_RETRIES}) — retrying in {_PUSH_BACKOFF}s: {e}")
+                time.sleep(_PUSH_BACKOFF)
+                continue
+            print(f"  [Notion] {label}: network error, giving up after {_PUSH_RETRIES} attempts: {e}")
+            return None
+
+        if resp.status_code in _TRANSIENT_CODES and attempt < _PUSH_RETRIES:
+            print(f"  [Notion] {label}: {resp.status_code} (attempt {attempt}/{_PUSH_RETRIES}) — retrying in {_PUSH_BACKOFF}s")
+            time.sleep(_PUSH_BACKOFF)
+            continue
+        return resp
+
+    return None
 
 
 def normalize_url(url: str) -> str:
@@ -89,15 +117,15 @@ def get_existing_urls(db_id: str) -> set[str]:
         if cursor:
             payload["start_cursor"] = cursor
 
-        resp = requests.post(
+        resp = _request_with_retry(
             f"{BASE_URL}/databases/{db_id}/query",
-            headers=_headers(),
-            json=payload,
-            timeout=15,
+            payload,
+            "Query existing URLs",
         )
 
-        if resp.status_code != 200:
-            print(f"  [Notion] Query failed: {resp.status_code} {resp.text[:200]}")
+        if resp is None or resp.status_code != 200:
+            code = resp.status_code if resp is not None else "no response"
+            print(f"  [Notion] Query failed: {code}")
             break
 
         data = resp.json()
@@ -160,17 +188,12 @@ def push_article(db_id: str, item: dict) -> bool:
 
     payload = {"parent": {"database_id": db_id}, "properties": properties}
 
-    for attempt in range(1, _PUSH_RETRIES + 1):
-        resp = requests.post(f"{BASE_URL}/pages", headers=_headers(), json=payload, timeout=15)
-        if resp.status_code == 200:
-            return True
-        if resp.status_code in (429, 500, 503) and attempt < _PUSH_RETRIES:
-            print(f"  [Notion] Attempt {attempt} failed ({resp.status_code}) — retrying in {_PUSH_BACKOFF}s")
-            time.sleep(_PUSH_BACKOFF)
-            continue
-        print(f"  [Notion] Push failed ({resp.status_code}) for '{item.get('title', '?')[:50]}': {resp.text[:200]}")
+    resp = _request_with_retry(f"{BASE_URL}/pages", payload, f"Push '{item.get('title', '?')[:40]}'")
+    if resp is None:
         return False
-
+    if resp.status_code == 200:
+        return True
+    print(f"  [Notion] Push failed ({resp.status_code}) for '{item.get('title', '?')[:50]}': {resp.text[:200]}")
     return False
 
 
