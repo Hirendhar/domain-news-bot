@@ -166,6 +166,12 @@ def push_article(db_id: str, item: dict) -> bool:
         "Source": {
             "select": {"name": item.get("source", "Unknown")}
         },
+        "Category": {
+            "select": {"name": item.get("ai_category") or "Other"}
+        },
+        "Sale Price": {
+            "rich_text": [{"text": {"content": item.get("ai_sale_price", "")[:100]}}]
+        },
         "Date Found": {
             "date": {"start": item.get("date_found", "")}
         },

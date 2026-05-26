@@ -26,7 +26,7 @@ load_dotenv()
 
 from scraper.sources import domainnamewire, dnjournal, namepros, circleid, icannblog
 from storage.notion_sync import sync, normalize_url
-from emailer import send_email, is_configured
+from emailer import send_email, is_configured, format_by_category
 
 SOURCES = [
     ("Domain Name Wire", domainnamewire.fetch),
@@ -47,22 +47,23 @@ def _send_email(added_count: int, articles: list[dict]) -> None:
     today = date.today().strftime("%-d %b %Y")
     subject = f"📰 Domain News — {added_count} new article{'s' if added_count != 1 else ''} ({today})"
 
-    # Group by source
-    by_source: dict[str, list[dict]] = {}
-    for art in articles:
-        src = art.get("source", "Other")
-        by_source.setdefault(src, []).append(art)
+    # Normalize in-memory items to the shared formatter's expected keys
+    normalized = [
+        {
+            "title":      art.get("title", "Untitled"),
+            "url":        art.get("url", ""),
+            "source":     art.get("source", ""),
+            "category":   art.get("ai_category", "Other"),
+            "summary":    art.get("ai_summary", ""),
+            "sale_price": art.get("ai_sale_price", ""),
+            "published":  art.get("pub_date", ""),
+        }
+        for art in articles
+    ]
 
-    lines = [f"Domain News Bot — {added_count} new article(s) found\n"]
-    for src, arts in by_source.items():
-        lines.append(f"\n── {src} ({len(arts)}) ──")
-        for art in arts:
-            lines.append(f"  • {art.get('title', 'Untitled')}")
-            lines.append(f"    {art.get('url', '')}")
-            if art.get("ai_summary") and not art["ai_summary"].startswith("[Summary pending"):
-                summary = art["ai_summary"].split(".")[0] + "."
-                lines.append(f"    {summary}")
-    lines += [
+    lines = [
+        f"Domain News Bot — {added_count} new article(s) found\n",
+        format_by_category(normalized),
         f"\n{'─' * 50}",
         f"View all in Notion: {NOTION_DB_URL}",
     ]

@@ -73,6 +73,8 @@ def enrich(items: list[dict], model: str = "gemini-2.5-flash") -> list[dict]:
                         "summary": "[Summary pending — AI unavailable during fetch. Will appear on next run.]",
                         "topics": [],
                         "key_points": "",
+                        "category": "Other",
+                        "sale_price": "",
                     })
                     print(f"  [Pipeline] Could not summarise: {item.get('title', '?')[:60]}")
 
@@ -87,6 +89,8 @@ def _merge(item: dict, ai: dict) -> dict:
         "ai_summary": ai.get("summary", ""),
         "ai_topics": ", ".join(ai.get("topics", [])),
         "ai_key_points": ai.get("key_points", ""),
+        "ai_category": ai.get("category", "Other"),
+        "ai_sale_price": ai.get("sale_price", ""),
     }
 
 
@@ -118,6 +122,8 @@ Return this EXACT JSON:
   "analyses": [
     {{
       "summary": "<3-4 sentence plain-English summary explaining what the article is about and why it matters to the domain industry>",
+      "category": "<exactly ONE of the 8 categories below>",
+      "sale_price": "<headline dollar amount if this is a domain sale/acquisition, e.g. $25,000; otherwise empty string>",
       "topics": ["<topic1>", "<topic2>"],
       "key_points": "<bullet list of 3-5 key takeaways, each on a new line starting with •>"
     }}
@@ -126,6 +132,8 @@ Return this EXACT JSON:
 
 Rules:
 - summary: clear explanation for domain industry professionals. Include specific names, numbers, deals if mentioned.
+- category: pick the SINGLE best fit from exactly these 8 — [Sales & Acquisitions, Disputes & Arbitration, Takedowns & Seizures, Policy & ICANN, New gTLDs & Registry, Security & Theft, Market & Investing, Other]. Use "Other" only if none clearly apply.
+- sale_price: only for articles reporting a specific domain sale/acquisition price — copy the amount verbatim (with currency symbol). Empty string "" if no price is reported.
 - topics: choose from [Domain Sales, New gTLDs, ccTLDs, Domain Policy, Domain Investing, Domain Theft/Security, Industry News, ICANN, Registry/Registrar, Legal/Disputes]
 - key_points: concrete facts and figures — no vague statements
 - One analysis object per article, in the same order as input

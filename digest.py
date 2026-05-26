@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from emailer import send_email, is_configured
+from emailer import send_email, is_configured, format_by_category
 
 NOTION_VERSION = "2022-06-28"
 NOTION_BASE    = "https://api.notion.com/v1"
@@ -61,8 +61,17 @@ def fetch_week_articles(db_id: str) -> list[dict]:
             t.get("text", {}).get("content", "")
             for t in props.get("Summary", {}).get("rich_text", [])
         )
+        category = (props.get("Category", {}).get("select") or {}).get("name", "") or "Other"
+        sale_price = "".join(
+            t.get("text", {}).get("content", "")
+            for t in props.get("Sale Price", {}).get("rich_text", [])
+        )
+        published = (props.get("Published", {}).get("date") or {}).get("start", "") or ""
         if title:
-            articles.append({"title": title, "url": url, "source": source, "summary": summary})
+            articles.append({
+                "title": title, "url": url, "source": source, "summary": summary,
+                "category": category, "sale_price": sale_price, "published": published,
+            })
 
     return articles
 
@@ -117,10 +126,6 @@ def send_digest(articles: list[dict], synthesis: str) -> None:
     week_ending = date.today().strftime("%-d %b %Y")
     subject = f"🌐 Domain News Weekly — Week ending {week_ending} ({len(articles)} articles)"
 
-    by_source: dict[str, list[dict]] = {}
-    for art in articles:
-        by_source.setdefault(art["source"], []).append(art)
-
     lines = [
         f"Domain News Weekly Digest",
         f"Week ending {week_ending} — {len(articles)} articles\n",
@@ -128,13 +133,7 @@ def send_digest(articles: list[dict], synthesis: str) -> None:
     if synthesis:
         lines += ["── WEEK IN REVIEW ──", synthesis, ""]
 
-    lines.append("── ALL ARTICLES THIS WEEK ──")
-    for src, arts in by_source.items():
-        lines.append(f"\n{src} ({len(arts)}):")
-        for art in arts:
-            lines.append(f"  • {art['title']}")
-            lines.append(f"    {art['url']}")
-
+    lines.append(format_by_category(articles))
     lines += ["", "─" * 50, f"View in Notion: {NOTION_DB_URL}"]
 
     if not is_configured():

@@ -16,8 +16,87 @@ Env vars (all optional; sensible fallbacks for backward compatibility):
 """
 import os
 import smtplib
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+# News categories in display order, with the short label used in the counts header.
+CATEGORY_ORDER: list[tuple[str, str]] = [
+    ("Sales & Acquisitions",   "Sales"),
+    ("Disputes & Arbitration", "Disputes"),
+    ("Takedowns & Seizures",   "Takedowns"),
+    ("Policy & ICANN",         "Policy"),
+    ("New gTLDs & Registry",   "gTLDs"),
+    ("Security & Theft",       "Security"),
+    ("Market & Investing",     "Market"),
+    ("Other",                  "Other"),
+]
+_VALID_CATEGORIES = {name for name, _ in CATEGORY_ORDER}
+
+
+def _fmt_date(raw: str) -> str:
+    """Best-effort pretty date ('26 May 2026') from RFC-2822 or ISO-8601; '' if unparseable."""
+    if not raw:
+        return ""
+    for parser in (parsedate_to_datetime, datetime.fromisoformat):
+        try:
+            return parser(raw).strftime("%-d %b %Y")
+        except Exception:
+            continue
+    return raw[:16]
+
+
+def format_by_category(articles: list[dict]) -> str:
+    """
+    Build a plain-text email body grouping articles by news category.
+
+    Each article is a normalized dict with keys:
+      title, url, source, category, summary, sale_price, published
+    Produces a counts header followed by fixed-order category sections.
+    """
+    # Bucket articles, coercing unknown/blank categories to "Other"
+    buckets: dict[str, list[dict]] = {name: [] for name, _ in CATEGORY_ORDER}
+    for art in articles:
+        cat = art.get("category") or "Other"
+        if cat not in _VALID_CATEGORIES:
+            cat = "Other"
+        buckets[cat].append(art)
+
+    # Counts header — only non-zero categories, in fixed order
+    counts = [f"{len(buckets[name])} {label}" for name, label in CATEGORY_ORDER if buckets[name]]
+    lines: list[str] = []
+    if counts:
+        lines.append(" · ".join(counts))
+        lines.append("")
+
+    for name, _ in CATEGORY_ORDER:
+        arts = buckets[name]
+        if not arts:
+            continue
+        lines.append(f"── {name} ({len(arts)}) ──")
+        for art in arts:
+            title = art.get("title", "Untitled")
+            price = (art.get("sale_price") or "").strip()
+            title_line = f"  • {title}"
+            if price:
+                title_line += f"  [💰 {price}]"
+            lines.append(title_line)
+
+            meta = " · ".join(p for p in (_fmt_date(art.get("published", "")), art.get("source", "")) if p)
+            if meta:
+                lines.append(f"    {meta}")
+
+            summary = (art.get("summary") or "").strip()
+            if summary and not summary.startswith("[Summary pending"):
+                lines.append(f"    {summary}")
+
+            if art.get("url"):
+                lines.append(f"    {art['url']}")
+            lines.append("")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
 
 
 def _cfg() -> dict:

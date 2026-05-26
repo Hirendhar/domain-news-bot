@@ -27,6 +27,18 @@ SOURCE_OPTIONS = [
     {"name": "Domain Gang",      "color": "red"},
 ]
 
+# News categories (single primary category per article) with colours
+CATEGORY_OPTIONS = [
+    {"name": "Sales & Acquisitions",   "color": "green"},
+    {"name": "Disputes & Arbitration", "color": "orange"},
+    {"name": "Takedowns & Seizures",   "color": "red"},
+    {"name": "Policy & ICANN",         "color": "blue"},
+    {"name": "New gTLDs & Registry",   "color": "purple"},
+    {"name": "Security & Theft",       "color": "pink"},
+    {"name": "Market & Investing",     "color": "yellow"},
+    {"name": "Other",                  "color": "gray"},
+]
+
 
 def _headers(token: str) -> dict:
     return {
@@ -56,6 +68,8 @@ def create_database(parent_page_id: str, token: str) -> str:
                     ]
                 }
             },
+            "Category":   {"select": {"options": CATEGORY_OPTIONS}},
+            "Sale Price": {"rich_text": {}},
             "Date Found": {"date": {}},
             "Published":  {"date": {}},
             "Topics":     {"multi_select": {"options": []}},
@@ -76,12 +90,16 @@ def patch_database(db_id: str, token: str) -> None:
     - Topics: rich_text → multi_select
     - Published: rich_text → date
     - Source: add NamePros, CircleID, Domain Gang options
+    - Category: add select property (8 news categories)
+    - Sale Price: add rich_text property
     """
     payload = {
         "properties": {
-            "Topics":    {"multi_select": {"options": []}},
-            "Published": {"date": {}},
-            "Source":    {"select": {"options": SOURCE_OPTIONS}},
+            "Topics":     {"multi_select": {"options": []}},
+            "Published":  {"date": {}},
+            "Source":     {"select": {"options": SOURCE_OPTIONS}},
+            "Category":   {"select": {"options": CATEGORY_OPTIONS}},
+            "Sale Price": {"rich_text": {}},
         }
     }
     resp = requests.patch(
@@ -92,7 +110,7 @@ def patch_database(db_id: str, token: str) -> None:
     )
     if resp.status_code == 200:
         print("✅ Database schema updated successfully!")
-        print("   Topics → multi_select  |  Published → date  |  Source options updated")
+        print("   Topics, Published, Source updated  |  + Category (select)  |  + Sale Price (text)")
     else:
         print(f"ERROR: {resp.status_code}: {resp.text[:400]}")
         sys.exit(1)
