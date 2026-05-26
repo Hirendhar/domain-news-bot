@@ -104,10 +104,11 @@ def _parse_pub_date(raw: str) -> str:
         return ""
 
 
-def get_existing_urls(db_id: str) -> set[str]:
+def get_existing_urls(db_id: str) -> set[str] | None:
     """
     Fetch all article URLs already in the database (for deduplication).
-    Returns normalised URLs. Handles Notion pagination automatically.
+    Returns normalised URLs, or None if the query failed (so the caller can
+    skip syncing instead of re-pushing everything as new). Handles pagination.
     """
     seen: set[str] = set()
     cursor = None
@@ -125,8 +126,8 @@ def get_existing_urls(db_id: str) -> set[str]:
 
         if resp is None or resp.status_code != 200:
             code = resp.status_code if resp is not None else "no response"
-            print(f"  [Notion] Query failed: {code}")
-            break
+            print(f"  [Notion] Query failed: {code} — cannot verify duplicates this cycle")
+            return None   # Signal failure so sync() can skip rather than re-push dupes
 
         data = resp.json()
         for page in data.get("results", []):
@@ -204,6 +205,11 @@ def sync(db_id: str, items: list[dict]) -> tuple[int, int]:
     """
     print(f"  [Notion] Fetching existing URLs...")
     existing = get_existing_urls(db_id)
+    if existing is None:
+        # Query failed (e.g. Notion 503). Skip this cycle entirely rather than
+        # re-push every article as new and create duplicates. Syncs next run.
+        print("  [Notion] Skipping sync — could not confirm existing articles (will retry next cycle)")
+        return 0, len(items)
     print(f"  [Notion] {len(existing)} articles already in DB")
 
     added = 0

@@ -86,7 +86,10 @@ def _send_email(added_count: int, articles: list[dict]) -> None:
             server.sendmail(gmail_addr, notify_to, msg.as_string())
         print(f"  [Email] Digest sent to {notify_to}")
     except Exception as e:
+        # Safe diagnostic — prints address + password LENGTH (never the value)
+        # so we can tell a mangled secret from a Gmail datacenter-IP block.
         print(f"  [Email] Failed to send: {e}")
+        print(f"  [Email] (diagnostic: from={gmail_addr!r}, pw_len={len(gmail_pass)} chars, to={notify_to!r})")
 
 
 def main() -> None:
