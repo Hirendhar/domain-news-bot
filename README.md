@@ -105,6 +105,24 @@ You can also trigger it manually: **Actions → Domain News Bot → Run workflow
 
 ---
 
+## Daily digest + article ideas
+
+`digest.py` emails a rolled-up digest with a **"Day/Week in Review"** synthesis
+and a **"💡 Article Ideas to Write"** section — original angles the AI suggests
+from the period's news (grounded in the stories, no invented facts). Two
+schedules run it:
+
+| Workflow | Schedule | Window |
+|---|---|---|
+| `digest-daily.yml` | Every day 13:07 UTC | last 24h (`DIGEST_DAYS=1`) |
+| `digest.yml` | Mondays 08:00 UTC | last 7 days |
+
+Run locally: `DIGEST_DAYS=1 python digest.py` (daily) or `python digest.py` (weekly).
+Set the optional `USER_CONTEXT` secret to bias the suggested ideas toward your
+interests. The daily digest uses the same email secrets as the other workflows.
+
+---
+
 ## Project structure
 
 ```
@@ -121,8 +139,11 @@ domain-news-bot/
 │   └── writer.py                # Full original article generation
 ├── storage/
 │   └── notion_sync.py           # Notion push + deduplication
+├── digest.py                    # Daily/weekly digest + article-idea suggestions
 ├── .github/workflows/
-│   └── scraper.yml              # GitHub Actions (every 6 hours)
+│   ├── scraper.yml              # Scrape + enrich (every 6 hours)
+│   ├── digest-daily.yml         # Daily digest + article ideas (13:07 UTC)
+│   └── digest.yml               # Weekly digest (Mondays 08:00 UTC)
 ├── setup_notion.py              # One-time DB creation
 ├── requirements.txt
 ├── .env.example

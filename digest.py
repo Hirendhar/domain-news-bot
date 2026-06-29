@@ -1,14 +1,22 @@
 """
-Weekly Domain News Digest
-Queries Notion for articles from the past 7 days, synthesises them with Gemini,
-and sends an email summary.
+Domain News Digest
+Queries Notion for recent articles, synthesises them with Gemini, suggests
+original article ideas to write, and sends an email.
 
-Run manually:  python digest.py
-Auto-runs via: .github/workflows/digest.yml (every Monday 08:00 UTC)
+Window is configurable via DIGEST_DAYS (default 7):
+  DIGEST_DAYS=1  → daily digest (last 24h)  — see .github/workflows/digest-daily.yml
+  DIGEST_DAYS=7  → weekly digest            — see .github/workflows/digest.yml
+
+Run manually:  python digest.py            (weekly)
+               DIGEST_DAYS=1 python digest.py   (daily)
 
 Required env vars:
   NOTION_TOKEN, NOTION_DATABASE_ID, GEMINI_API_KEY
-  GMAIL_ADDRESS, GMAIL_APP_PASSWORD, NOTIFY_EMAIL_TO
+  SMTP_* / GMAIL_*, NOTIFY_EMAIL_TO  (see emailer.py)
+
+Optional env vars:
+  DIGEST_DAYS    lookback window in days (default 7)
+  USER_CONTEXT   focus hint to bias the suggested article ideas
 """
 import os
 import sys
@@ -25,6 +33,15 @@ NOTION_BASE    = "https://api.notion.com/v1"
 NOTION_DB_URL  = "https://www.notion.so/Domain-News-1b77ea433c6c80e49916cac0f9c8b241"
 
 
+def _window() -> tuple[int, str]:
+    """Return (days, label) from DIGEST_DAYS. 1 day → 'Daily', else 'Weekly'."""
+    try:
+        days = max(1, int(os.environ.get("DIGEST_DAYS", "7") or "7"))
+    except ValueError:
+        days = 7
+    return days, ("Daily" if days == 1 else "Weekly")
+
+
 def _notion_headers() -> dict:
     return {
         "Authorization": f"Bearer {os.environ['NOTION_TOKEN']}",
@@ -33,9 +50,9 @@ def _notion_headers() -> dict:
     }
 
 
-def fetch_week_articles(db_id: str) -> list[dict]:
-    """Query Notion for articles added in the past 7 days."""
-    since = (date.today() - timedelta(days=7)).isoformat()
+def fetch_recent_articles(db_id: str, days: int = 7) -> list[dict]:
+    """Query Notion for articles added in the past ``days`` days."""
+    since = (date.today() - timedelta(days=days)).isoformat()
     payload = {
         "filter": {"property": "Date Found", "date": {"on_or_after": since}},
         "sorts": [{"property": "Date Found", "direction": "descending"}],
@@ -76,35 +93,17 @@ def fetch_week_articles(db_id: str) -> list[dict]:
     return articles
 
 
-def synthesise(articles: list[dict]) -> str:
-    """Ask Gemini to write a concise 'week in review' synthesis."""
+def _gemini(prompt: str, max_tokens: int = 1024, temperature: float = 0.5) -> str:
+    """Single Gemini call returning plain text, or '' on any failure."""
     api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key or not articles:
+    if not api_key:
         return ""
-
-    items_text = "\n\n".join(
-        f"- [{a['source']}] {a['title']}\n  {a['summary'][:300]}"
-        for a in articles
-    )
-    prompt = f"""You are a domain name industry analyst writing a weekly newsletter.
-
-Here are the domain industry news articles from the past 7 days:
-
-{items_text}
-
-Write a concise "Week in Review" (200-300 words) that:
-1. Identifies the 2-3 biggest themes or stories of the week
-2. Highlights any notable domain sales, policy changes, or industry shifts
-3. Ends with one sentence on what to watch in the coming week
-
-Plain text only — no markdown, no bullet points, just paragraphs.
-"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     try:
         resp = requests.post(
             url,
             json={"contents": [{"parts": [{"text": prompt}]}],
-                  "generationConfig": {"temperature": 0.5, "maxOutputTokens": 1024}},
+                  "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens}},
             timeout=30,
         )
         if resp.status_code == 200:
@@ -116,22 +115,88 @@ Plain text only — no markdown, no bullet points, just paragraphs.
                 .get("text", "")
                 .strip()
             )
+        print(f"[Digest] Gemini returned {resp.status_code}")
     except Exception as e:
         print(f"[Digest] Gemini error: {e}")
     return ""
 
 
-def send_digest(articles: list[dict], synthesis: str) -> None:
-    """Email the weekly digest via the configured SMTP provider."""
-    week_ending = date.today().strftime("%-d %b %Y")
-    subject = f"🌐 Domain News Weekly — Week ending {week_ending} ({len(articles)} articles)"
+def _articles_block(articles: list[dict], limit: int = 40) -> str:
+    """Compact bullet list of articles for prompting."""
+    return "\n\n".join(
+        f"- [{a['source']}] {a['title']}\n  {a['summary'][:300]}"
+        for a in articles[:limit]
+    )
+
+
+def synthesise(articles: list[dict], label: str = "Weekly") -> str:
+    """Ask Gemini to write a concise period-in-review synthesis."""
+    if not articles:
+        return ""
+    period = "day" if label == "Daily" else "week"
+    prompt = f"""You are a domain name industry analyst writing a {label.lower()} newsletter.
+
+Here are the domain industry news articles from the past {period}:
+
+{_articles_block(articles)}
+
+Write a concise "{label} in Review" (150-300 words) that:
+1. Identifies the 2-3 biggest themes or stories
+2. Highlights any notable domain sales, policy changes, or industry shifts
+3. Ends with one sentence on what to watch next
+
+Plain text only — no markdown, no bullet points, just paragraphs.
+"""
+    return _gemini(prompt, max_tokens=1024, temperature=0.5)
+
+
+def suggest_ideas(articles: list[dict]) -> str:
+    """
+    Ask Gemini to suggest original article ideas to write, grounded in the
+    day's/week's news. Returns a numbered plain-text list, or '' on failure.
+    """
+    if not articles:
+        return ""
+
+    user_context = os.environ.get("USER_CONTEXT", "").strip()
+    context_section = (
+        f"\nWriter focus: {user_context} — bias ideas toward this where relevant.\n"
+        if user_context else ""
+    )
+
+    prompt = f"""You are a content strategist for a domain name industry publication.
+Based ONLY on the news below, suggest 5-7 original article ideas the writer could
+publish — angles worth covering, not just rewrites of these stories.
+{context_section}
+NEWS:
+{_articles_block(articles)}
+
+For each idea, output on its own line:
+  <number>. <working title> — <one sentence on the angle and why it's timely>
+
+Rules:
+- Ground every idea in the news above; do not invent facts, names, or figures.
+- Favour fresh angles: trends across stories, explainers, contrarian takes,
+  "what it means for investors/registrars", follow-up questions raised.
+- Plain text only. No preamble, no closing remarks — just the numbered list.
+"""
+    return _gemini(prompt, max_tokens=1024, temperature=0.7)
+
+
+def send_digest(articles: list[dict], synthesis: str, ideas: str, label: str = "Weekly") -> None:
+    """Email the digest (review + article ideas + articles) via configured SMTP."""
+    today = date.today().strftime("%-d %b %Y")
+    when = "today" if label == "Daily" else "ending"
+    subject = f"🌐 Domain News {label} — {when} {today} ({len(articles)} articles)"
 
     lines = [
-        f"Domain News Weekly Digest",
-        f"Week ending {week_ending} — {len(articles)} articles\n",
+        f"Domain News {label} Digest",
+        f"{label} digest — {today} — {len(articles)} articles\n",
     ]
     if synthesis:
-        lines += ["── WEEK IN REVIEW ──", synthesis, ""]
+        lines += [f"── {label.upper()} IN REVIEW ──", synthesis, ""]
+    if ideas:
+        lines += ["── 💡 ARTICLE IDEAS TO WRITE ──", ideas, ""]
 
     lines.append(format_by_category(articles))
     lines += ["", "─" * 50, f"View in Notion: {NOTION_DB_URL}"]
@@ -142,7 +207,7 @@ def send_digest(articles: list[dict], synthesis: str) -> None:
         return
 
     if send_email(subject, "\n".join(lines)):
-        print(f"[Digest] Weekly digest sent ({len(articles)} articles)")
+        print(f"[Digest] {label} digest sent ({len(articles)} articles)")
 
 
 def main() -> None:
@@ -151,17 +216,23 @@ def main() -> None:
         print("ERROR: NOTION_DATABASE_ID not set")
         sys.exit(1)
 
-    print("[Digest] Fetching last 7 days from Notion...")
-    articles = fetch_week_articles(db_id)
+    days, label = _window()
+    print(f"[Digest] Fetching last {days} day(s) from Notion ({label})...")
+    articles = fetch_recent_articles(db_id, days)
     print(f"[Digest] {len(articles)} articles found")
 
     if not articles:
-        print("[Digest] No articles this week — skipping")
+        print(f"[Digest] No articles in the last {days} day(s) — skipping")
         return
 
-    print("[Digest] Generating week-in-review with Gemini...")
-    synthesis = synthesise(articles)
-    send_digest(articles, synthesis)
+    print("[Digest] Generating review with Gemini...")
+    synthesis = synthesise(articles, label)
+    print("[Digest] Suggesting article ideas with Gemini...")
+    ideas = suggest_ideas(articles)
+    if ideas:
+        print(f"[Digest] {ideas.count(chr(10)) + 1} idea line(s) generated")
+
+    send_digest(articles, synthesis, ideas, label)
 
 
 if __name__ == "__main__":
