@@ -105,21 +105,24 @@ You can also trigger it manually: **Actions → Domain News Bot → Run workflow
 
 ---
 
-## Daily digest + article ideas
+## Weekly digest + article ideas
 
-`digest.py` emails a rolled-up digest with a **"Day/Week in Review"** synthesis
-and a **"💡 Article Ideas to Write"** section — original angles the AI suggests
-from the period's news (grounded in the stories, no invented facts). Two
-schedules run it:
+`digest.py` emails a rolled-up digest with a **"Week in Review"** synthesis and a
+**"💡 Article Ideas to Write"** section — original angles Gemini suggests from the
+period's news (grounded in the stories, no invented facts). Run via
+`digest.yml` (Mondays 08:00 UTC), or locally with `python digest.py`. The window
+is configurable with `DIGEST_DAYS` (default 7), and `USER_CONTEXT` biases the
+ideas toward your interests.
 
-| Workflow | Schedule | Window |
-|---|---|---|
-| `digest-daily.yml` | Every day 13:07 UTC | last 24h (`DIGEST_DAYS=1`) |
-| `digest.yml` | Mondays 08:00 UTC | last 7 days |
+## Daily article ideas — no-API-key Claude Routine
 
-Run locally: `DIGEST_DAYS=1 python digest.py` (daily) or `python digest.py` (weekly).
-Set the optional `USER_CONTEXT` secret to bias the suggested ideas toward your
-interests. The daily digest uses the same email secrets as the other workflows.
+For a **daily 8am** brief of fresh article ideas **without using a Gemini API
+key**, use a [Claude Code Routine](https://code.claude.com/docs/en/routines): a
+scheduled cloud session where **Claude itself** reads the day's news and writes
+the ideas. The `news_brief.py` helper is AI-free — it just fetches the last-24h
+news from Notion (`fetch`) and emails the news + Claude's ideas (`email`).
+
+Full setup steps and the routine prompt are in **[ROUTINE.md](ROUTINE.md)**.
 
 ---
 
@@ -139,10 +142,11 @@ domain-news-bot/
 │   └── writer.py                # Full original article generation
 ├── storage/
 │   └── notion_sync.py           # Notion push + deduplication
-├── digest.py                    # Daily/weekly digest + article-idea suggestions
+├── digest.py                    # Weekly digest + article-idea suggestions (Gemini)
+├── news_brief.py                # AI-free helper for the no-key daily Claude routine
+├── ROUTINE.md                   # Daily 8am "article ideas" Claude routine setup
 ├── .github/workflows/
 │   ├── scraper.yml              # Scrape + enrich (every 6 hours)
-│   ├── digest-daily.yml         # Daily digest + article ideas (13:07 UTC)
 │   └── digest.yml               # Weekly digest (Mondays 08:00 UTC)
 ├── setup_notion.py              # One-time DB creation
 ├── requirements.txt
