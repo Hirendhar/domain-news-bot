@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from scraper.sources import domainnamewire, dnjournal, namepros, circleid, icannblog
-from storage.notion_sync import sync, normalize_url
+from storage.notion_sync import sync, normalize_url, get_existing_urls
 from emailer import send_email, is_configured, format_by_category
 
 SOURCES = [
@@ -119,11 +119,35 @@ def main() -> None:
         print("\n[AI] Skipped — GEMINI_API_KEY not set")
         enriched_items = unique_items
 
-    # ── 4. Push to Notion ──────────────────────────────────────────
-    print(f"\n[Notion] Syncing {len(enriched_items)} articles...")
-    added, skipped = sync(db_id, enriched_items)
+    # ── 4. Identify which items are new (not yet in Notion) ────────
+    # Fetched once and reused for both article writing and the sync below.
+    existing = get_existing_urls(db_id)
+    if existing is None:
+        new_items = []
+        print("\n[Notion] Could not fetch existing articles — skipping article writing this run")
+    else:
+        new_items = [
+            it for it in enriched_items
+            if it.get("url") and normalize_url(it["url"]) not in existing
+        ]
+        print(f"\n[New] {len(new_items)} new article(s) not yet in Notion")
 
-    # ── 5. Email notification (only if new articles were added) ────
+    # ── 5. AI article writing — full original write-ups for new items ──
+    write_enabled = ai_enabled and os.environ.get("WRITE_ARTICLES", "1").lower() not in ("0", "false", "no")
+    if write_enabled and new_items:
+        print(f"\n[Writer] Writing full articles for {len(new_items)} new item(s)...")
+        from ai.writer import write_articles, save_articles
+        write_articles(new_items)
+        save_articles(new_items)
+    elif not write_enabled:
+        reason = "GEMINI_API_KEY not set" if not ai_enabled else "WRITE_ARTICLES disabled"
+        print(f"\n[Writer] Skipped — {reason}")
+
+    # ── 6. Push to Notion ──────────────────────────────────────────
+    print(f"\n[Notion] Syncing {len(enriched_items)} articles...")
+    added, skipped = sync(db_id, enriched_items, existing=existing)
+
+    # ── 7. Email notification (only if new articles were added) ────
     if added > 0:
         print(f"\n[Email] Sending digest for {added} new article(s)...")
         _send_email(added, enriched_items)

@@ -1,6 +1,6 @@
 # 🌐 Domain News Bot
 
-Automatically scrapes new articles from **Domain Name Wire** and **DN Journal** every 6 hours, reads the full article, summarises it with AI, and saves everything to a **Notion database** — with links.
+Automatically scrapes new articles from **Domain Name Wire** and **DN Journal** every 6 hours, reads the full article, summarises it with AI, **writes an original full-length article** from the retrieved information, and saves everything to a **Notion database** — with links.
 
 ## What you get in Notion
 
@@ -15,6 +15,22 @@ Each article row has:
 | **Topics** | Auto-tagged: Domain Sales, ICANN, New gTLDs, etc. |
 | **Date Found** | When the bot found it |
 | **Status** | New → Read → Saved / Skip |
+
+Each new row's **page body** also contains a full ~400-600 word original article
+written by the AI from the retrieved source text, and a copy is saved locally
+under `articles/<date>/` (gitignored).
+
+### Article writing
+
+After summarising, the bot writes a publishable, original news article for each
+*new* item (one it hasn't stored before), grounded strictly in the fetched
+source text — no invented facts. Controlled via env vars:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `WRITE_ARTICLES` | `1` | Set `0` to disable full-article generation |
+| `MAX_ARTICLES` | `20` | Max articles written per run (protects Gemini quota) |
+| `ARTICLES_DIR` | `articles` | Local folder for generated `.md` files |
 
 ---
 
@@ -101,7 +117,8 @@ domain-news-bot/
 ├── ai/
 │   ├── client.py                # Gemini API client (auto model fallback)
 │   ├── fetcher.py               # Full article text fetcher
-│   └── pipeline.py              # Batch AI summarisation
+│   ├── pipeline.py              # Batch AI summarisation
+│   └── writer.py                # Full original article generation
 ├── storage/
 │   └── notion_sync.py           # Notion push + deduplication
 ├── .github/workflows/
