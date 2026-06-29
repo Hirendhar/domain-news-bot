@@ -1,6 +1,6 @@
 # 🌐 Domain News Bot
 
-Automatically scrapes new articles from **Domain Name Wire** and **DN Journal** every 6 hours, reads the full article, summarises it with AI, and saves everything to a **Notion database** — with links.
+Automatically scrapes new articles from **Domain Name Wire** and **DN Journal** every 6 hours, reads the full article, summarises it with AI, **writes an original full-length article** from the retrieved information, and saves everything to a **Notion database** — with links.
 
 ## What you get in Notion
 
@@ -15,6 +15,22 @@ Each article row has:
 | **Topics** | Auto-tagged: Domain Sales, ICANN, New gTLDs, etc. |
 | **Date Found** | When the bot found it |
 | **Status** | New → Read → Saved / Skip |
+
+Each new row's **page body** also contains a full ~400-600 word original article
+written by the AI from the retrieved source text, and a copy is saved locally
+under `articles/<date>/` (gitignored).
+
+### Article writing
+
+After summarising, the bot writes a publishable, original news article for each
+*new* item (one it hasn't stored before), grounded strictly in the fetched
+source text — no invented facts. Controlled via env vars:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `WRITE_ARTICLES` | `1` | Set `0` to disable full-article generation |
+| `MAX_ARTICLES` | `20` | Max articles written per run (protects Gemini quota) |
+| `ARTICLES_DIR` | `articles` | Local folder for generated `.md` files |
 
 ---
 
@@ -89,6 +105,27 @@ You can also trigger it manually: **Actions → Domain News Bot → Run workflow
 
 ---
 
+## Weekly digest + article ideas
+
+`digest.py` emails a rolled-up digest with a **"Week in Review"** synthesis and a
+**"💡 Article Ideas to Write"** section — original angles Gemini suggests from the
+period's news (grounded in the stories, no invented facts). Run via
+`digest.yml` (Mondays 08:00 UTC), or locally with `python digest.py`. The window
+is configurable with `DIGEST_DAYS` (default 7), and `USER_CONTEXT` biases the
+ideas toward your interests.
+
+## Daily article ideas — no-API-key Claude Routine
+
+For a **daily 8am** brief of fresh article ideas **without using a Gemini API
+key**, use a [Claude Code Routine](https://code.claude.com/docs/en/routines): a
+scheduled cloud session where **Claude itself** reads the day's news and writes
+the ideas. The `news_brief.py` helper is AI-free — it just fetches the last-24h
+news from Notion (`fetch`) and emails the news + Claude's ideas (`email`).
+
+Full setup steps and the routine prompt are in **[ROUTINE.md](ROUTINE.md)**.
+
+---
+
 ## Project structure
 
 ```
@@ -101,11 +138,16 @@ domain-news-bot/
 ├── ai/
 │   ├── client.py                # Gemini API client (auto model fallback)
 │   ├── fetcher.py               # Full article text fetcher
-│   └── pipeline.py              # Batch AI summarisation
+│   ├── pipeline.py              # Batch AI summarisation
+│   └── writer.py                # Full original article generation
 ├── storage/
 │   └── notion_sync.py           # Notion push + deduplication
+├── digest.py                    # Weekly digest + article-idea suggestions (Gemini)
+├── news_brief.py                # AI-free helper for the no-key daily Claude routine
+├── ROUTINE.md                   # Daily 8am "article ideas" Claude routine setup
 ├── .github/workflows/
-│   └── scraper.yml              # GitHub Actions (every 6 hours)
+│   ├── scraper.yml              # Scrape + enrich (every 6 hours)
+│   └── digest.yml               # Weekly digest (Mondays 08:00 UTC)
 ├── setup_notion.py              # One-time DB creation
 ├── requirements.txt
 ├── .env.example

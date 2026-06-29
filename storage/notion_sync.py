@@ -8,6 +8,7 @@ Required env vars:
   NOTION_DATABASE_ID   — the ID of the target Notion database
 """
 import os
+import re
 import time
 import requests
 from email.utils import parsedate_to_datetime
@@ -142,10 +143,65 @@ def get_existing_urls(db_id: str) -> set[str] | None:
     return seen
 
 
+# Notion limits: max 100 blocks per page-create, max 2000 chars per rich_text.
+_MAX_BLOCKS = 100
+_MAX_BLOCK_CHARS = 2000
+
+
+def _text_block(block_type: str, content: str) -> dict:
+    """Build a single Notion block of the given type with plain rich text."""
+    return {
+        "object": "block",
+        "type": block_type,
+        block_type: {
+            "rich_text": [{"type": "text", "text": {"content": content[:_MAX_BLOCK_CHARS]}}]
+        },
+    }
+
+
+def markdown_to_blocks(markdown: str) -> list[dict]:
+    """
+    Convert a lightweight-markdown article body into Notion block objects.
+
+    Supports '#'/'##'/'###' headings, '-'/'*'/'•' bullets, and paragraphs.
+    Inline emphasis markers are stripped (Notion shows plain text). Long
+    paragraphs are chunked to stay under Notion's per-block character limit,
+    and the whole list is capped at Notion's per-create block limit.
+    """
+    blocks: list[dict] = []
+    for raw_line in (markdown or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Strip simple inline emphasis so '**'/'*'/'`' don't show literally.
+        clean = re.sub(r"[*_`]+", "", line)
+
+        if line.startswith("### "):
+            blocks.append(_text_block("heading_3", clean[4:].strip()))
+        elif line.startswith("## "):
+            blocks.append(_text_block("heading_2", clean[3:].strip()))
+        elif line.startswith("# "):
+            blocks.append(_text_block("heading_1", clean[2:].strip()))
+        elif re.match(r"^[-*•]\s+", line):
+            item_text = re.sub(r"^[-*•]\s+", "", clean).strip()
+            blocks.append(_text_block("bulleted_list_item", item_text))
+        else:
+            # Paragraph — chunk if it exceeds the per-block character limit.
+            for start in range(0, len(clean), _MAX_BLOCK_CHARS):
+                blocks.append(_text_block("paragraph", clean[start:start + _MAX_BLOCK_CHARS]))
+
+        if len(blocks) >= _MAX_BLOCKS:
+            break
+
+    return blocks[:_MAX_BLOCKS]
+
+
 def push_article(db_id: str, item: dict) -> bool:
     """
     Push a single article to Notion with retry on transient errors.
-    Returns True on success.
+    If the item carries a generated ``ai_article`` body, it is written into the
+    Notion page content as blocks. Returns True on success.
     """
     iso_pub_date = _parse_pub_date(item.get("pub_date", ""))
 
@@ -193,7 +249,12 @@ def push_article(db_id: str, item: dict) -> bool:
     if iso_pub_date:
         properties["Published"] = {"date": {"start": iso_pub_date}}
 
-    payload = {"parent": {"database_id": db_id}, "properties": properties}
+    payload: dict = {"parent": {"database_id": db_id}, "properties": properties}
+
+    # Attach the generated long-form article as page body content, if present.
+    blocks = markdown_to_blocks(item.get("ai_article", ""))
+    if blocks:
+        payload["children"] = blocks
 
     resp = _request_with_retry(f"{BASE_URL}/pages", payload, f"Push '{item.get('title', '?')[:40]}'")
     if resp is None:
@@ -204,13 +265,18 @@ def push_article(db_id: str, item: dict) -> bool:
     return False
 
 
-def sync(db_id: str, items: list[dict]) -> tuple[int, int]:
+def sync(db_id: str, items: list[dict], existing: set[str] | None = None) -> tuple[int, int]:
     """
     Sync articles to Notion. Skips duplicates (by normalised URL).
     Returns (added_count, skipped_count).
+
+    ``existing`` may be a pre-fetched set of normalised URLs (e.g. computed by
+    the caller to also decide which items are new). Pass nothing to have sync
+    fetch it. A sentinel of ``None`` after fetching means the query failed.
     """
-    print(f"  [Notion] Fetching existing URLs...")
-    existing = get_existing_urls(db_id)
+    if existing is None:
+        print(f"  [Notion] Fetching existing URLs...")
+        existing = get_existing_urls(db_id)
     if existing is None:
         # Query failed (e.g. Notion 503). Skip this cycle entirely rather than
         # re-push every article as new and create duplicates. Syncs next run.
